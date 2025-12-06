@@ -346,77 +346,71 @@ class RAGEngine:
 
     def _build_prompt(self, query: str, context_docs: List[Document]) -> str:
         """
-        构建 RAG 提示词
-
-        Args:
-            query: 用户查询
-            context_docs: 检索到的相关文档
-
-        Returns:
-            构建的提示词
+        构建 RAG 提示词 (已修改为混合模式)
         """
-        # 构建上下文
-        context = "\n\n".join([
-            f"[文档片段 {i+1}]\n{doc.page_content}"
-            for i, doc in enumerate(context_docs)
-        ])
+        # 如果没有文档，上下文就是空的
+        if not context_docs:
+            context = "（当前没有相关的知识库内容）"
+        else:
+            context = "\n\n".join([
+                f"[参考片段 {i+1}]\n{doc.page_content}"
+                for i, doc in enumerate(context_docs)
+            ])
 
-        # 构建提示词
-        prompt = f"""你是一个智能助手，基于以下知识库内容回答用户问题。
+        # 修改提示词，允许模型使用通用知识
+        prompt = f"""你是一个智能助手。请参考下面的【知识库片段】来回答用户的【问题】。
 
-知识库内容：
+【知识库片段】：
 {context}
 
-用户问题：{query}
+【用户问题】：{query}
 
-请基于上述知识库内容回答用户问题。如果知识库中没有相关信息，请诚实说明，不要编造答案。
-回答要准确、简洁、有条理。"""
-
+回答要求：
+1. 如果【知识库片段】中有答案，请优先基于知识库回答。
+2. 如果【知识库片段】与问题无关或没有内容，请忽略知识库，直接使用你自己的通用知识来回答用户的问题。
+3. 回答要自然、流畅。
+"""
         return prompt
 
+    
     def query(self, query: str, stream: bool = False) -> Iterator[str]:
         """
-        查询知识库并生成回答（流式）
-
-        Args:
-            query: 用户查询
-            stream: 是否使用流式输出
-
-        Yields:
-            回答的文本片段
+        查询知识库并生成回答（流式）- 已修改为支持通用闲聊
         """
-        # 检索相关文档
-        context_docs = self.vectorstore.similarity_search(query, k=4)
+        # 1. 尝试检索相关文档
+        # 注意：如果数据库是空的，这里会返回空列表，不会报错
+        try:
+            context_docs = self.vectorstore.similarity_search(query, k=4)
+        except Exception:
+            # 如果数据库还没初始化或出错，就当做没文档
+            context_docs = []
 
-        if not context_docs:
-            yield "抱歉，知识库中没有找到相关信息。请先上传相关文档。"
-            return
+        # 删除原本的 "if not context_docs: return" 拦截代码
+        # 让代码继续往下走，去调用 DeepSeek
 
-        # 构建提示词
+        # 2. 构建提示词 (会自动处理 context_docs 为空的情况)
         prompt = self._build_prompt(query, context_docs)
 
-        # 添加系统消息和用户消息
+        # 3. 添加系统消息和用户消息
+        # 可以在 system 里稍微强化一下人设
         messages = [
-            {"role": "system", "content": "你是一个基于知识库的智能助手，请根据提供的知识库内容回答问题。"},
+            {"role": "system", "content": "你是一个乐于助人的智能助手。既能回答知识库的问题，也能进行日常对话。"},
             {"role": "user", "content": prompt}
         ]
 
-        # 调用 DeepSeek API
+        # 4. 调用 DeepSeek API (保持原样)
         try:
             if stream:
-                # 流式响应
                 response = self.llm_client.chat.completions.create(
                     model="deepseek-chat",
                     messages=messages,
                     stream=True,
                     temperature=0.7
                 )
-
                 for chunk in response:
                     if chunk.choices[0].delta.content:
                         yield chunk.choices[0].delta.content
             else:
-                # 非流式响应
                 response = self.llm_client.chat.completions.create(
                     model="deepseek-chat",
                     messages=messages,
