@@ -7,7 +7,7 @@
 
 [**English**](README.md) | [**中文说明**](README_CN.md)
 
-![Demonstration]([png2pdf.pdf](https://github.com/user-attachments/files/24014396/png2pdf.pdf))
+<img width="100%" alt="Image" src="https://github.com/user-attachments/assets/4ec13e1a-8b76-40b2-beea-12d2ee53771a" />
 
 A local **RAG (Retrieval-Augmented Generation)** Q&A system built with **Streamlit**. 
 
