@@ -31,6 +31,7 @@ wheels/
 .env
 .env.local
 .env.*.local
+fix_env.py
 # 注意：我们要允许上传 .env.example 作为模板，所以不屏蔽它
 
 # -------------------

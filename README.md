@@ -1,65 +1,74 @@
-# 📚 本地 RAG 智能知识库助手 (支持 OCR & DeepSeek)
+# 📚 Local-Doc-Chat-OCR: RAG Assistant with Vision
 
-这是一个基于 **Streamlit** 构建的本地 RAG（检索增强生成）问答系统。它不仅支持普通的文本和文档，还集成了 **OCR (光学字符识别)** 技术，能够处理**扫描版 PDF** 和图片型文档。
+[![Python](https://img.shields.io/badge/Python-3.8%2B-blue)](https://www.python.org/)
+[![Streamlit](https://img.shields.io/badge/Frontend-Streamlit-red)](https://streamlit.io/)
+[![DeepSeek](https://img.shields.io/badge/LLM-DeepSeek%20V3-purple)](https://www.deepseek.com/)
+[![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
 
-后端模型采用高性价比的 **DeepSeek V3**，配合本地运行的 **Ollama** 进行隐私安全的向量嵌入。
+[**English**](README.md) | [**中文说明**](README_CN.md)
 
-## ✨ 核心功能
+A local **RAG (Retrieval-Augmented Generation)** Q&A system built with **Streamlit**. 
 
-- **📄 全能文档支持**：
-  - **PDF**: 支持普通文本 PDF 及 **扫描件/纯图片 PDF** (自动触发 OCR)。
-  - **Markdown/TXT**: 支持常见文本格式。
-- **👁️ 内置 OCR 引擎**：
-  - 集成 `RapidOCR` + `PyMuPDF`，在本地直接识别文档文字，无需上传到第三方 OCR 平台。
-- **🧠 混合 AI 架构**：
-  - **LLM**: DeepSeek API (OpenAI SDK 兼容)。
-  - **Embedding**: 本地运行 Ollama (`all-minilm`)，零成本且保护隐私。
-  - **Vector DB**: ChromaDB 本地持久化存储，重启不丢失数据。
-- **💬 流式交互**：
-  - 类似 ChatGPT 的打字机效果，实时生成回答。
+Unlike traditional RAG tools, this project integrates **OCR (Optical Character Recognition)** capabilities, allowing you to chat not only with text documents but also with **scanned PDFs** and **images**.
 
-## 🛠️ 技术栈
+Powered by **DeepSeek V3** (for high-performance reasoning) and local **Ollama** (for privacy-preserving embedding).
 
-| 组件 | 技术选型 | 说明 |
+## ✨ Core Features
+
+- **📄 Universal Document Support**:
+  - **PDF**: Handles both standard text PDFs and **Scanned/Image-based PDFs** (Auto-triggers OCR).
+  - **Markdown/TXT**: Supports common text formats.
+- **👁️ Built-in OCR Engine**:
+  - Integrated `RapidOCR` + `PyMuPDF` for local text extraction. No need for third-party OCR APIs.
+- **🧠 Hybrid AI Architecture**:
+  - **LLM**: DeepSeek API (OpenAI SDK Compatible).
+  - **Embedding**: Local Ollama (`all-minilm`), zero-cost & privacy-first.
+  - **Vector DB**: ChromaDB for local persistence.
+- **💬 Streaming Interaction**:
+  - Real-time typewriter effect responses.
+
+## 🛠️ Tech Stack
+
+| Component | Technology | Description |
 | :--- | :--- | :--- |
-| **前端** | Streamlit | 极简 Python Web 框架 |
-| **大模型** | DeepSeek API | 高性能、低成本的推理模型 |
-| **Embedding** | Ollama | 本地运行 `all-minilm` 模型 |
-| **向量库** | ChromaDB | 轻量级本地向量数据库 |
-| **OCR** | RapidOCR | 基于 ONNX 的离线 OCR 引擎 |
-| **文档处理** | PyMuPDF (fitz) | 高效 PDF 解析与图片提取 |
+| **Frontend** | Streamlit | Lightweight Python Web Framework |
+| **LLM** | DeepSeek API | High performance, low cost reasoning model |
+| **Embedding** | Ollama | Running `all-minilm` locally |
+| **Vector DB** | ChromaDB | Local vector storage |
+| **OCR** | RapidOCR | ONNX-based offline OCR engine |
+| **ETL** | PyMuPDF (fitz) | PDF parsing and image extraction |
 
-## 🚀 快速开始
+## 🚀 Quick Start
 
-### 1. 环境准备
+### 1. Prerequisites
 
-确保已安装 [Python 3.8+](https://www.python.org/) 和 [Ollama](https://ollama.ai/)。
+Ensure you have [Python 3.8+](https://www.python.org/) and [Ollama](https://ollama.ai/) installed.
 
 ```bash
-# 克隆项目
-git clone https://github.com/你的用户名/local-rag-ocr-bot.git
+# Clone the repository
+git clone https://github.com/YOUR_USERNAME/local-rag-ocr-bot.git
 cd local-rag-ocr-bot
 ```
 
-### 2. 安装依赖
+### 2. Install Dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
-*注意：OCR 库依赖较大，下载可能需要一点时间。*
+*Note: The OCR libraries are relatively large, so the download might take a moment.*
 
-### 3. 模型准备 (Ollama)
+### 3. Prepare Model (Ollama)
 
-在终端运行以下命令，拉取嵌入模型：
+Pull the embedding model in your terminal:
 
 ```bash
 ollama pull all-minilm
 ```
-*请确保 Ollama 服务在后台运行。*
+*Make sure the Ollama service is running in the background.*
 
-### 4. 配置环境变量
+### 4. Configure Environment
 
-复制配置模板：
+Copy the example configuration file:
 
 ```bash
 # Windows
@@ -68,47 +77,47 @@ copy .env.example .env
 cp .env.example .env
 ```
 
-打开 `.env` 文件，填入你的配置：
+Open `.env` and fill in your DeepSeek API Key:
 
 ```ini
-# 你的 DeepSeek API Key
+# Your DeepSeek API Key
 DEEPSEEK_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxx
 
-# 其他配置保持默认即可
+# Keep others as default
 DEEPSEEK_BASE_URL=https://api.deepseek.com
 OLLAMA_BASE_URL=http://localhost:11434
 OLLAMA_MODEL=all-minilm
 CHROMA_DB_PATH=./chroma_db
 ```
 
-### 5. 运行应用
+### 5. Run App
 
 ```bash
 streamlit run app.py
 ```
 
-浏览器将自动打开 `http://localhost:8501`。
+The browser will automatically open at `http://localhost:8501`.
 
-## 📂 项目结构
+## 📂 Project Structure
 
 ```text
 .
-├── app.py                  # Streamlit 前端主程序
-├── rag_engine.py           # 核心逻辑 (OCR处理、向量化、RAG检索)
-├── requirements.txt        # 项目依赖列表
-├── .env.example            # 环境变量模板 (安全)
-├── .gitignore              # Git 忽略配置
-└── README.md               # 项目说明文档
+├── app.py                  # Main Streamlit application
+├── rag_engine.py           # Core logic (OCR, Vectorization, RAG)
+├── requirements.txt        # Python dependencies
+├── .env.example            # Env template (Safe to commit)
+├── .gitignore              # Git ignore rules
+├── README.md               # English Documentation
+└── README_CN.md            # Chinese Documentation
 ```
 
-## ⚠️ 使用注意事项
+## ⚠️ Notes
 
-1.  **OCR 识别速度**：如果你上传的是扫描版 PDF，系统会自动进行逐页识别。取决于你的电脑性能，这可能比普通文档处理慢一些，请留意终端的进度提示。
-2.  **DeepSeek 额度**：请确保你的 API Key 有充足的余额。
-3.  **数据重置**：如果想清空知识库，只需点击侧边栏的“清空知识库”按钮，或者手动删除本地的 `chroma_db` 文件夹。
+1.  **OCR Speed**: If you upload a scanned PDF, the system performs page-by-page recognition. Depending on your CPU, this may take longer than processing standard text. Please watch the terminal for progress.
+2.  **DeepSeek Quota**: Ensure your API Key has sufficient balance.
+3.  **Reset Data**: To clear the knowledge base, click the "Clear Knowledge Base" button in the sidebar or manually delete the local `chroma_db` folder.
 
-## 📄 许可证 (License)
+## 📄 License
 
-本项目采用 [MIT License](LICENSE) 开源许可证。
-仅供学习和研究使用，欢迎 Fork 和 Star！
-```
+This project is licensed under the [MIT License](LICENSE).
+Feel free to Fork and Star!
