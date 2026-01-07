@@ -1,0 +1,19 @@
+{
+    "include": [
+        "."
+    ],
+    "exclude": [
+        "**/__pycache__",
+        "**/chroma_db",
+        "**/node_modules"
+    ],
+    "reportMissingImports": false,
+    "reportMissingModuleSource": false,
+    "reportUnusedImport": false,
+    "reportUnusedClass": false,
+    "reportUnusedFunction": false,
+    "reportUnusedVariable": false,
+    "typeCheckingMode": "off"
+}
+
+

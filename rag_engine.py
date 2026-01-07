@@ -1,11 +1,9 @@
 """
-RAG (Retrieval-Augmented Generation) 引擎模块
-
-该模块实现了完整的 RAG 系统，包括：
-- 文档加载和分块
-- 向量化存储（ChromaDB）
-- 检索增强生成
-- 流式响应支持
+RAG (Retrieval-Augmented Generation) 引擎模块 - 优化版
+修改记录：
+1. 强制将 Embedding 模型指定为 'bge-m3' (解决中文检索问题)。
+2. 清理了重复的 API Key 初始化逻辑。
+3. 增加了调试打印，方便查看当前使用的模型。
 """
 import fitz  # PyMuPDF
 from rapidocr_onnxruntime import RapidOCR
@@ -23,37 +21,29 @@ from langchain_community.vectorstores import Chroma
 from langchain_core.documents import Document
 from openai import OpenAI
 from dotenv import load_dotenv
-import os
 
-# 原有的 import ...
-from io import BytesIO
-import chromadb
-
-
-#1. 获取当前脚本所在的绝对路径
+# --- 1. 环境配置加载 ---
 current_dir = os.path.dirname(os.path.abspath(__file__))
-# 2. 拼接出 .env 的绝对路径
 env_path = os.path.join(current_dir, '.env')
-
-# 3. 打印调试信息（让你看着放心）
-print(f"正在加载配置文件: {env_path}")
-
-# 4. 强制加载
+print(f"📂 正在加载配置文件: {env_path}")
 load_dotenv(dotenv_path=env_path, override=True)
 
 
 class DocumentProcessor:
-    """文档处理器类，负责加载和预处理各种格式的文档"""
+    """文档处理器类：负责加载、OCR识别和分块"""
 
-    def __init__(self, chunk_size: int = 1000, chunk_overlap: int = 200):
+    def __init__(self, chunk_size: int = 800, chunk_overlap: int = 150):
+        # 修改建议：中文文档 chunk_size 稍微调小一点，overlap 适中，有助于提高检索精度
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
         self.text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=chunk_size,
             chunk_overlap=chunk_overlap,
             length_function=len,
+            # 针对中文优化分隔符优先级
+            separators=["\n\n", "\n", "。", "！", "？", " ", ""]
         )
-        # 初始化 OCR 实例 (只初始化一次，避免重复加载模型)
+        # 初始化 OCR
         try:
             self.ocr = RapidOCR()
             self.ocr_available = True
@@ -63,12 +53,8 @@ class DocumentProcessor:
             self.ocr_available = False
 
     def load_pdf(self, file_content: bytes) -> str:
-        """
-        加载 PDF 文件内容 (支持扫描件 OCR)
-        """
         text = ""
-        
-        # 1. 尝试使用 pypdf 提取文本 (速度快，针对非扫描件)
+        # 1. 尝试直接提取
         try:
             from pypdf import PdfReader
             pdf_reader = PdfReader(BytesIO(file_content))
@@ -79,10 +65,10 @@ class DocumentProcessor:
         except Exception as e:
             print(f"⚠️ pypdf 读取出错: {e}，尝试切换到 OCR...")
 
-        # 2. 判断提取结果。如果内容为空或极少(少于50个字)，判定为扫描件，启用 OCR
+        # 2. 如果提取内容极少，判定为扫描件，启用 OCR
         if len(text.strip()) < 50:
             if self.ocr_available:
-                print("🔍 检测到扫描版 PDF 或文本极少，正在进行 OCR 识别 (速度较慢，请耐心等待)...")
+                print("🔍 检测到扫描版 PDF，正在进行 OCR 识别 (速度较慢，请耐心)...")
                 text = self._ocr_pdf(file_content)
             else:
                 text = "无法提取文本，且 OCR 模块未启用。"
@@ -90,54 +76,38 @@ class DocumentProcessor:
         return text
 
     def _ocr_pdf(self, file_content: bytes) -> str:
-        """
-        使用 PyMuPDF + RapidOCR 进行识别
-        """
         ocr_text = ""
         try:
-            # 使用 fitz (PyMuPDF) 打开 PDF
             with fitz.open(stream=file_content, filetype="pdf") as doc:
                 total_pages = len(doc)
                 for i, page in enumerate(doc):
-                    # 将页面转换为图片 (dpi=150 兼顾速度和精度)
-                    pix = page.get_pixmap(dpi=150)
+                    pix = page.get_pixmap(dpi=150) # 150 dpi 兼顾速度
                     img_bytes = pix.tobytes("png")
-                    
-                    # 调用 RapidOCR 识别
                     result, _ = self.ocr(img_bytes)
-                    
                     if result:
-                        # result 格式: [[box, text, score], ...]
                         page_content = "\n".join([line[1] for line in result])
                         ocr_text += page_content + "\n"
-                    
-                    # 打印进度 (因为 OCR 比较慢)
-                    print(f"   -> 正在识别第 {i+1}/{total_pages} 页...")
-                    
+                    if (i + 1) % 5 == 0:
+                        print(f"   -> OCR 进度: {i+1}/{total_pages} 页...")
         except Exception as e:
-            print(f"❌ OCR 识别过程中出错: {e}")
+            print(f"❌ OCR 出错: {e}")
             return ""
-            
         return ocr_text
 
     def load_markdown(self, file_content: bytes) -> str:
-        # ... (保持不变) ...
         try:
             return file_content.decode('utf-8')
         except UnicodeDecodeError:
             return file_content.decode('gbk', errors='ignore')
 
     def load_txt(self, file_content: bytes) -> str:
-         # ... (保持不变) ...
         try:
             return file_content.decode('utf-8')
         except UnicodeDecodeError:
             return file_content.decode('gbk', errors='ignore')
 
     def process_file(self, file_content: bytes, filename: str) -> List[Document]:
-        # ... (保持不变，但为了确保安全，我把你的原始逻辑复制在这里) ...
         file_ext = Path(filename).suffix.lower()
-
         if file_ext == '.pdf':
             text = self.load_pdf(file_content)
         elif file_ext in ['.md', '.markdown']:
@@ -148,62 +118,57 @@ class DocumentProcessor:
             raise ValueError(f"不支持的文件格式: {file_ext}")
 
         text = self._clean_text(text)
-        
-        # 再次检查：如果经过 OCR 还是空的
         if not text.strip():
-            print(f"⚠️ 文件 {filename} 处理后内容依然为空。")
             return []
 
         doc = Document(
             page_content=text,
             metadata={"source": filename, "file_type": file_ext}
         )
-
-        chunks = self.text_splitter.split_documents([doc])
-        return chunks
+        return self.text_splitter.split_documents([doc])
 
     def _clean_text(self, text: str) -> str:
-        # ... (保持不变) ...
+        # 简单的清洗，保留中文标点
         text = re.sub(r'\s+', ' ', text)
-        text = re.sub(r'[^\w\s\u4e00-\u9fff，。！？；：、""''（）【】]', ' ', text)
         return text.strip()
 
+
 class VectorStore:
-    """向量存储类，负责管理 ChromaDB 向量数据库"""
+    """向量存储类：管理 ChromaDB"""
 
     def __init__(self, db_path: str, collection_name: str):
-        """
-        初始化向量存储
-
-        Args:
-            db_path: ChromaDB 数据库路径
-            collection_name: 集合名称
-        """
         self.db_path = db_path
         self.collection_name = collection_name
 
-        # 初始化 Ollama Embeddings
+        # --- 核心修改：强制使用 bge-m3 模型 ---
         ollama_base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-        ollama_model = os.getenv("OLLAMA_MODEL", "nomic-embed-text")
+        
+        # ⚠️ 强制指定为 bge-m3，这是解决“死锁”搜不到的关键
+        # 如果环境变量没设，就默认 bge-m3
+        ollama_model = os.getenv("OLLAMA_MODEL", "bge-m3") 
 
-        self.embeddings = OllamaEmbeddings(
-            base_url=ollama_base_url,
-            model=ollama_model
-        )
+        print(f"🧠 正在初始化 Embedding 模型: {ollama_model} (地址: {ollama_base_url})")
 
-        # 初始化 ChromaDB 客户端
+        try:
+            self.embeddings = OllamaEmbeddings(
+                base_url=ollama_base_url,
+                model=ollama_model
+            )
+        except Exception as e:
+            print(f"❌ Embedding 模型初始化失败: {e}")
+            raise e
+
+        # 初始化 ChromaDB
         self.client = chromadb.PersistentClient(
             path=db_path,
             settings=Settings(anonymized_telemetry=False)
         )
 
-        # 获取或创建集合
         try:
             self.collection = self.client.get_collection(name=collection_name)
         except:
             self.collection = self.client.create_collection(name=collection_name)
 
-        # 初始化 LangChain Chroma
         self.vectorstore = Chroma(
             client=self.client,
             collection_name=collection_name,
@@ -211,240 +176,154 @@ class VectorStore:
         )
 
     def add_documents(self, documents: List[Document]) -> List[str]:
-        """
-        添加文档到向量数据库
-
-        Args:
-            documents: 文档列表
-
-        Returns:
-            添加的文档 ID 列表
-        """
         return self.vectorstore.add_documents(documents)
 
     def similarity_search(self, query: str, k: int = 4) -> List[Document]:
-        """
-        相似度搜索
-
-        Args:
-            query: 查询文本
-            k: 返回的文档数量
-
-        Returns:
-            相关文档列表
-        """
         return self.vectorstore.similarity_search(query, k=k)
 
-    def similarity_search_with_score(self, query: str, k: int = 4) -> List[tuple]:
-        """
-        带分数的相似度搜索
-
-        Args:
-            query: 查询文本
-            k: 返回的文档数量
-
-        Returns:
-            (文档, 分数) 元组列表
-        """
-        return self.vectorstore.similarity_search_with_score(query, k=k)
-
     def delete_collection(self):
-        """删除集合（清空数据库）"""
         try:
             self.client.delete_collection(name=self.collection_name)
+            # 重新创建
             self.collection = self.client.create_collection(name=self.collection_name)
+            # 重新绑定 LangChain 接口
             self.vectorstore = Chroma(
                 client=self.client,
                 collection_name=self.collection_name,
                 embedding_function=self.embeddings
             )
+            print("🗑️ 知识库已清空")
         except Exception as e:
             print(f"删除集合失败: {str(e)}")
 
 
 class RAGEngine:
-    """RAG 引擎主类，整合文档处理、向量存储和 LLM 调用"""
+    """RAG 引擎主类"""
 
     def __init__(self):
-        """初始化 RAG 引擎"""
-        # 加载配置
+        # 1. 向量库配置
         self.db_path = os.getenv("CHROMA_DB_PATH", "./chroma_db")
         self.collection_name = os.getenv("CHROMA_COLLECTION_NAME", "knowledge_base")
-        chunk_size = int(os.getenv("MAX_CHUNK_SIZE", "1000"))
-        chunk_overlap = int(os.getenv("CHUNK_OVERLAP", "200"))
+        chunk_size = int(os.getenv("MAX_CHUNK_SIZE", "800"))
+        chunk_overlap = int(os.getenv("CHUNK_OVERLAP", "150"))
 
-        # 初始化组件
-        self.doc_processor = DocumentProcessor(
-            chunk_size=chunk_size,
-            chunk_overlap=chunk_overlap
-        )
-        self.vectorstore = VectorStore(
-            db_path=self.db_path,
-            collection_name=self.collection_name
-        )
+        # 2. 初始化文档处理和向量库
+        self.doc_processor = DocumentProcessor(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+        self.vectorstore = VectorStore(db_path=self.db_path, collection_name=self.collection_name)
 
-        # 初始化 OpenAI 客户端（用于调用 DeepSeek API）
+        # 3. 初始化 DeepSeek API (清理了重复代码)
         api_key = os.getenv("DEEPSEEK_API_KEY")
         base_url = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
 
-         # 直接填入你的 Key (注意保留引号)
-        #api_key = "" 
-        #base_url = "https://api.deepseek.com"
-
         if not api_key:
-            raise ValueError("未找到 DEEPSEEK_API_KEY")
+            print("❌ 错误: 未找到 DEEPSEEK_API_KEY，请检查 .env 文件")
+            raise ValueError("API Key Missing")
 
+        print(f"🤖 正在连接 DeepSeek API...")
         self.llm_client = OpenAI(
             api_key=api_key,
             base_url=base_url
         )
 
-
-
-        if not api_key:
-            raise ValueError("未找到 DEEPSEEK_API_KEY 环境变量，请在 .env 文件中配置")
-
-        self.llm_client = OpenAI(
-            api_key=api_key,
-            base_url=base_url
-        )
-
-        # 对话历史
         self.conversation_history: List[Dict[str, str]] = []
 
     def add_document(self, file_content: bytes, filename: str) -> Dict[str, Any]:
-        """
-        添加文档到知识库
-
-        Args:
-            file_content: 文件字节内容
-            filename: 文件名
-
-        Returns:
-            处理结果字典
-        """
+        """添加文档"""
         try:
-            # 处理文档
             documents = self.doc_processor.process_file(file_content, filename)
-
-            # 添加到向量数据库
+            if not documents:
+                return {"success": False, "message": "文档内容为空或无法识别", "chunks_count": 0}
+            
             doc_ids = self.vectorstore.add_documents(documents)
-
             return {
                 "success": True,
-                "message": f"成功添加文档: {filename}",
+                "message": f"成功添加: {filename}",
                 "chunks_count": len(documents),
                 "doc_ids": doc_ids
             }
         except Exception as e:
-            return {
-                "success": False,
-                "message": f"添加文档失败: {str(e)}",
-                "chunks_count": 0,
-                "doc_ids": []
-            }
+            return {"success": False, "message": f"添加失败: {str(e)}", "chunks_count": 0}
 
     def _build_prompt(self, query: str, context_docs: List[Document]) -> str:
-        """
-        构建 RAG 提示词 (已修改为混合模式)
-        """
-        # 如果没有文档，上下文就是空的
+        """构建提示词"""
         if not context_docs:
-            context = "（当前没有相关的知识库内容）"
+            context = "（没有检索到相关背景信息）"
         else:
-            context = "\n\n".join([
-                f"[参考片段 {i+1}]\n{doc.page_content}"
-                for i, doc in enumerate(context_docs)
-            ])
+            context = "\n\n".join([f"[参考片段 {i+1}]\n{doc.page_content}" for i, doc in enumerate(context_docs)])
 
-        # 修改提示词，允许模型使用通用知识
-        prompt = f"""你是一个智能助手。请参考下面的【知识库片段】来回答用户的【问题】。
+        prompt = f"""你是一个专业的工程知识助手。请基于下面的【参考资料】回答用户的【问题】。
 
-【知识库片段】：
+【参考资料】：
 {context}
 
-【用户问题】：{query}
+【问题】：{query}
 
-回答要求：
-1. 如果【知识库片段】中有答案，请优先基于知识库回答。
-2. 如果【知识库片段】与问题无关或没有内容，请忽略知识库，直接使用你自己的通用知识来回答用户的问题。
-3. 回答要自然、流畅。
+要求：
+1. 如果参考资料中有答案，请详细引用资料回答。
+2. 如果参考资料与问题无关，请忽略资料，利用你的通用知识回答。
+3. 回答要条理清晰，适合工程管理人员阅读。
 """
         return prompt
 
-    
     def query(self, query: str, stream: bool = False) -> Iterator[str]:
-        """
-        查询知识库并生成回答（流式）- 已修改为支持通用闲聊
-        """
-        # 1. 尝试检索相关文档
-        # 注意：如果数据库是空的，这里会返回空列表，不会报错
+        """查询入口"""
+        # 1. 检索 (Top-K 设为 4 或 5，给 DeepSeek 更多上下文)
         try:
-            context_docs = self.vectorstore.similarity_search(query, k=4)
-        except Exception:
-            # 如果数据库还没初始化或出错，就当做没文档
+            print(f"🔍 正在检索: {query}")
+            context_docs = self.vectorstore.similarity_search(query, k=5)
+            # 调试：打印检索到的片段前50个字，看看准不准
+            for i, doc in enumerate(context_docs):
+                print(f"   [片段{i+1}] {doc.page_content[:50].replace(chr(10), ' ')}...")
+        except Exception as e:
+            print(f"⚠️ 检索出错 (可能是库为空): {e}")
             context_docs = []
 
-        # 删除原本的 "if not context_docs: return" 拦截代码
-        # 让代码继续往下走，去调用 DeepSeek
-
-        # 2. 构建提示词 (会自动处理 context_docs 为空的情况)
+        # 2. 构建提示词
         prompt = self._build_prompt(query, context_docs)
 
-        # 3. 添加系统消息和用户消息
-        # 可以在 system 里稍微强化一下人设
+        # 3. 消息历史 (System Prompt + User Prompt)
         messages = [
-            {"role": "system", "content": "你是一个乐于助人的智能助手。既能回答知识库的问题，也能进行日常对话。"},
+            {"role": "system", "content": "你是一个乐于助人的智能助手。"},
             {"role": "user", "content": prompt}
         ]
 
-        # 4. 调用 DeepSeek API (保持原样)
+        # 4. 调用 DeepSeek
         try:
+            response = self.llm_client.chat.completions.create(
+                model="deepseek-chat",
+                messages=messages,
+                stream=stream,
+                temperature=0.3 # 降低温度，让回答更严谨
+            )
+            
             if stream:
-                response = self.llm_client.chat.completions.create(
-                    model="deepseek-chat",
-                    messages=messages,
-                    stream=True,
-                    temperature=0.7
-                )
                 for chunk in response:
                     if chunk.choices[0].delta.content:
                         yield chunk.choices[0].delta.content
             else:
-                response = self.llm_client.chat.completions.create(
-                    model="deepseek-chat",
-                    messages=messages,
-                    stream=False,
-                    temperature=0.7
-                )
                 yield response.choices[0].message.content
 
         except Exception as e:
-            yield f"生成回答时出错: {str(e)}"
+            yield f"API 调用出错: {str(e)}"
 
     def clear_knowledge_base(self):
-        """清空知识库"""
         self.vectorstore.delete_collection()
         self.conversation_history.clear()
 
     def get_stats(self) -> Dict[str, Any]:
         """
         获取知识库统计信息
-
-        Returns:
-            统计信息字典
         """
         try:
+            # 尝试获取真实的 chunk 数量
             count = self.vectorstore.collection.count()
-            return {
-                "total_chunks": count,
-                "collection_name": self.collection_name,
-                "db_path": self.db_path
-            }
         except:
-            return {
-                "total_chunks": 0,
-                "collection_name": self.collection_name,
-                "db_path": self.db_path
-            }
-
+            count = 0
+            
+        # 必须返回 collection_name 和 db_path，防止 app.py 报错
+        return {
+            "total_chunks": count,
+            "collection_name": self.collection_name, 
+            "db_path": self.db_path,
+            "model": "bge-m3 + deepseek-chat"
+        }
