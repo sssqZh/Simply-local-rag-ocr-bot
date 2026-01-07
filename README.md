@@ -11,9 +11,21 @@
 
 A local **RAG (Retrieval-Augmented Generation)** Q&A system built with **Streamlit**. 
 
+
 Unlike traditional RAG tools, this project integrates **OCR (Optical Character Recognition)** capabilities, allowing you to chat not only with text documents but also with **scanned PDFs** and **images**.
 
 Powered by **DeepSeek V3** (for high-performance reasoning) and local **Ollama** (for privacy-preserving embedding).
+
+## ⚡️ Update：
+- **For better Chinese understanding**。
+  - Prerequisites：
+  - Please download Ollama。
+**And run this in terminal**：
+
+```
+ollama pull bge-m3
+```
+
 
 ## ✨ Core Features
 
